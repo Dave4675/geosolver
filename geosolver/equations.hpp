@@ -11,7 +11,7 @@ namespace geo {
 
 		struct SymNode;
 		using SymNodePtr = std::shared_ptr<SymNode>;
-		using SymNodeList = std::list<SymNodePtr>;
+		using SymNodeList = std::list<SymNode>;
 
 		GEOSOLVER_API void sym_kernel_init();
 		GEOSOLVER_API s32 sym_kernel_get_id(std::string name);
@@ -19,28 +19,37 @@ namespace geo {
 
 		struct SymNode
 		{
-			enum { OP_ADD, OP_SUB, OP_MUL, /*OP_SQUARE, */ OP_DIV, OP_VAL_RATIONAL, OP_VAL_REAL, OP_VAR};
+			enum { OP_NONE, OP_ADD, OP_SUB, OP_MUL, /*OP_SQUARE, */ OP_DIV, OP_VAL_RATIONAL, OP_VAL_REAL, OP_VAR};
 			SymNodeList nodes;
 			int type;
 			void *data;
-			SymNode(SymNodePtr v1, SymNodePtr v2, int type)
+
+			SymNode()
+			{
+				type = OP_NONE;
+				data = nullptr;
+			}
+
+			SymNode(int type): type(type), data(nullptr){}
+
+			SymNode(SymNode v1, SymNode v2, int type)
 			{
 				this->type = type;
 
-				if (v1 && v2)
+				if (v1.type && v2.type)
 				{
-					if (type == v1->type)
+					if (type == v1.type)
 					{
-						nodes.splice(nodes.end(), v1->nodes);
+						nodes.splice(nodes.end(), v1.nodes);
 					}
 					else
 					{
 						nodes.push_back(v1);
 					}
 
-					if (type == v2->type)
+					if (type == v2.type)
 					{
-						nodes.splice(nodes.end(), v2->nodes);
+						nodes.splice(nodes.end(), v2.nodes);
 					}
 					else
 					{
@@ -52,26 +61,26 @@ namespace geo {
 			}
 		};
 
-		std::ostream& operator<<(std::ostream& out, SymNodePtr node)
+		std::ostream& operator<<(std::ostream& out, SymNode node)
 		{
 			size_t i = 0;
-			auto it = node->nodes.begin();
-			switch (node->type)
+			auto it = node.nodes.begin();
+			switch (node.type)
 			{
 			case SymNode::OP_VAR:
-				out << sym_kernel_get_name(*(s32*)node->data) << " ";
+				out << sym_kernel_get_name(*(s32*)node.data) << " ";
 				break;
 			case SymNode::OP_VAL_REAL:
-				out << *(r64*)node->data << " ";
+				out << *(r64*)node.data << " ";
 				break;
 			default:
-				if (!node->nodes.empty())
+				if (!node.nodes.empty())
 					out << "( ";
-				for (; it != node->nodes.end() && i < node->nodes.size()-1; it++)
+				for (; it != node.nodes.end() && i < node.nodes.size()-1; it++)
 				{
 					out << (*it);
 					
-					switch (node->type)
+					switch (node.type)
 					{
 					case SymNode::OP_ADD:
 						out << "+ ";
@@ -89,7 +98,7 @@ namespace geo {
 
 					i++;
 				}
-				if (!node->nodes.empty())
+				if (!node.nodes.empty())
 				{
 					out << (*(it++));
 					out << ") ";
@@ -104,41 +113,47 @@ namespace geo {
 			SymNodePtr node;
 			int depth;
 		};
-
-		SymNodePtr op_mul(SymNodePtr lhs, SymNodePtr rhs)
+		
+		SymNode op_none()
 		{
-			return std::make_shared<SymNode>(lhs, rhs, SymNode::OP_MUL);
+			return SymNode();
 		}
 
-		SymNodePtr op_add(SymNodePtr lhs, SymNodePtr rhs)
+		SymNode op_mul(SymNode lhs, SymNode rhs)
 		{
-			return std::make_shared<SymNode>(lhs, rhs, SymNode::OP_ADD);
+			return SymNode(lhs, rhs, SymNode::OP_MUL);
 		}
 
-		SymNodePtr op_sub(SymNodePtr lhs, SymNodePtr rhs)
+		SymNode op_add(SymNode lhs, SymNode rhs)
 		{
-			return std::make_shared<SymNode>(lhs, rhs, SymNode::OP_SUB);
+			return SymNode(lhs, rhs, SymNode::OP_ADD);
 		}
 
-		SymNodePtr op_div(SymNodePtr lhs, SymNodePtr rhs)
+		SymNode op_sub(SymNode lhs, SymNode rhs)
 		{
-			return std::make_shared<SymNode>(lhs, rhs, SymNode::OP_DIV);
+			return SymNode(lhs, rhs, SymNode::OP_SUB);
 		}
 
-		SymNodePtr op_val_real(r64 value)
+		SymNode op_div(SymNode lhs, SymNode rhs)
+		{
+			return SymNode(lhs, rhs, SymNode::OP_DIV);
+		}
+
+		SymNode op_val_real(r64 value)
 		{
 			r64 *v = new r64{ value };
-			auto p = std::make_shared<SymNode>(nullptr, nullptr, SymNode::OP_VAL_REAL);
-			p->data = v;
+			auto p = SymNode(SymNode::OP_VAL_REAL);
+			p.data = v;
 			return p;
 		}
 
-		SymNodePtr op_var(std::string&& name)
+		SymNode op_var(std::string&& name)
 		{
 			s32 *v = new s32(0);
 			*v = sym_kernel_get_id(name);
-			auto p = std::make_shared<SymNode>(nullptr, nullptr, SymNode::OP_VAR);
-			p->data = v;
+			auto p = SymNode();
+			p.type = SymNode::OP_VAR;
+			p.data = v;
 			return p;
 		}
 
@@ -148,123 +163,121 @@ namespace geo {
 			
 		}*/
 
-		SymNodePtr operator+(SymNodePtr lhs, SymNodePtr rhs)
+		SymNode operator+(SymNode lhs, SymNode rhs)
 		{
 			return op_add(lhs, rhs);
 		}
 
-		SymNodePtr operator-(SymNodePtr lhs, SymNodePtr rhs)
+		SymNode operator-(SymNode lhs, SymNode rhs)
 		{
 			return op_sub(lhs, rhs);
 		}
 
-		SymNodePtr operator*(SymNodePtr lhs, SymNodePtr rhs)
+		SymNode operator*(SymNode lhs, SymNode rhs)
 		{
 			return op_mul(lhs, rhs);
 		}
 
-		SymNodePtr operator/(SymNodePtr lhs, SymNodePtr rhs)
+		SymNode operator/(SymNode lhs, SymNode rhs)
 		{
 			return op_div(lhs, rhs);
 		}
 
 		// NODE - R64 SECTION
-		SymNodePtr operator+(SymNodePtr lhs, r64 rhs)
+		SymNode operator+(SymNode lhs, r64 rhs)
 		{
 			return op_add(lhs, op_val_real(rhs));
 		}
 
-		SymNodePtr operator-(SymNodePtr lhs, r64 rhs)
+		SymNode operator-(SymNode lhs, r64 rhs)
 		{
 			return op_sub(lhs, op_val_real(rhs));
 		}
 
-		SymNodePtr operator*(SymNodePtr lhs, r64 rhs)
+		SymNode operator*(SymNode lhs, r64 rhs)
 		{
 			return op_mul(lhs, op_val_real(rhs));
 		}
 
-		SymNodePtr operator/(SymNodePtr lhs, r64 rhs)
+		SymNode operator/(SymNode lhs, r64 rhs)
 		{
 			return op_div(lhs, op_val_real(rhs));
 		}
 
-		SymNodePtr operator+(r64 lhs, SymNodePtr rhs)
+		SymNode operator+(r64 lhs, SymNode rhs)
 		{
 			return op_add(op_val_real(lhs), rhs);
 		}
 
-		SymNodePtr operator-(r64 lhs, SymNodePtr rhs)
+		SymNode operator-(r64 lhs, SymNode rhs)
 		{
 			return op_sub(op_val_real(lhs), rhs);
 		}
 
-		SymNodePtr operator*(r64 lhs, SymNodePtr rhs)
+		SymNode operator*(r64 lhs, SymNode rhs)
 		{
 			return op_mul(op_val_real(lhs), rhs);
 		}
 
-		SymNodePtr operator/(r64 lhs, SymNodePtr rhs)
+		SymNode operator/(r64 lhs, SymNode rhs)
 		{
 			return op_div(op_val_real(lhs), rhs);
 		}
 
 		// NODE - STRING SECTION
-		SymNodePtr operator+(const char* lhs, SymNodePtr rhs)
+		SymNode operator+(const char* lhs, SymNode rhs)
 		{
 			return op_add(op_var(lhs), rhs);
 		}
 
-		SymNodePtr operator-(const char* lhs, SymNodePtr rhs)
+		SymNode operator-(const char* lhs, SymNode rhs)
 		{
 			return op_sub(op_var(lhs), rhs);
 		}
 
-		SymNodePtr operator*(const char* lhs, SymNodePtr rhs)
+		SymNode operator*(const char* lhs, SymNode rhs)
 		{
 			return op_mul(op_var(lhs), rhs);
 		}
 
-		SymNodePtr operator/(const char* lhs, SymNodePtr rhs)
+		SymNode operator/(const char* lhs, SymNode rhs)
 		{
 			return op_div(op_var(lhs), rhs);
 		}
 
-		SymNodePtr operator+(SymNodePtr lhs, const char* rhs)
+		SymNode operator+(SymNode lhs, const char* rhs)
 		{
 			return op_add(lhs, op_var(rhs));
 		}
 
-		SymNodePtr operator-(SymNodePtr lhs, const char* rhs)
+		SymNode operator-(SymNode lhs, const char* rhs)
 		{
 			return op_sub(lhs, op_var(rhs));
 		}
 
-		SymNodePtr operator*(SymNodePtr lhs, const char* rhs)
+		SymNode operator*(SymNode lhs, const char* rhs)
 		{
 			return op_mul(lhs, op_var(rhs));
 		}
 
-		SymNodePtr operator/(SymNodePtr lhs, const char* rhs)
+		SymNode operator/(SymNode lhs, const char* rhs)
 		{
 			return op_div(lhs, op_var(rhs));
 		}
 
 		//-----------------------
 
-		SymNodePtr expand_mul_2(SymNodePtr node1, SymNodePtr node2)
+		SymNode expand_mul_2(SymNode node1, SymNode node2)
 		{
-			SymNodePtr result;
-
-			result = op_add(nullptr, nullptr);
+			SymNode result(SymNode::OP_ADD);
 
 			SymNodeList::iterator it1;
 			SymNodeList::iterator it2;
 
-			if (node1->nodes.empty())
+			if (node1.nodes.empty())
 			{
-				it2 = node2->nodes.begin();
-				while (it2 != node2->nodes.end())
+				it2 = node2.nodes.begin();
+				while (it2 != node2.nodes.end())
 				{
 					result = result + node1*(*it2);
 					it2++;
@@ -272,17 +285,17 @@ namespace geo {
 			}
 			else
 			{
-				it1 = node1->nodes.begin();
-				while(it1 != node1->nodes.end())
+				it1 = node1.nodes.begin();
+				while(it1 != node1.nodes.end())
 				{
-					if (node2->nodes.empty())
+					if (node2.nodes.empty())
 					{
 						result = result + node2*(*it1);
 					}
 					else
 					{
-						it2 = node2->nodes.begin();
-						while (it2 != node2->nodes.end())
+						it2 = node2.nodes.begin();
+						while (it2 != node2.nodes.end())
 						{
 							result = result + (*it1)*(*it2);
 							it2++;
@@ -295,15 +308,15 @@ namespace geo {
 			return result;
 		}
 
-		SymNodePtr expand_mul(SymNodePtr node)
+		SymNode expand_mul(SymNode node)
 		{
-			SymNodeList::iterator it1 = node->nodes.begin();
+			SymNodeList::iterator it1 = node.nodes.begin();
 			SymNodeList::iterator it2 = it1;
 			it2++;
 			
-			SymNodePtr result = expand_mul_2(*it1, *it2);
+			SymNode result = expand_mul_2(*it1, *it2);
 			it2++;
-			while (it2 != node->nodes.end())
+			while (it2 != node.nodes.end())
 			{
 				result = expand_mul_2(result, *it2);
 				it2++;
@@ -312,12 +325,12 @@ namespace geo {
 			return result;
 		}
 
-		SymNodePtr expand(SymNodePtr node)
+		SymNode expand(SymNode node)
 		{
-			SymNodePtr result;
-			if (!node->nodes.empty())
+			SymNode result;
+			if (!node.nodes.empty())
 			{
-				switch (node->type)
+				switch (node.type)
 				{
 				case SymNode::OP_MUL:
 					result = expand_mul(node);
@@ -325,8 +338,8 @@ namespace geo {
 				case SymNode::OP_DIV:
 					break;
 				case SymNode::OP_ADD:
-					result = op_add(nullptr, nullptr);
-					for (auto it : node->nodes)
+					result = SymNode(SymNode::OP_ADD);
+					for (auto it : node.nodes)
 					{
 						result = result + expand(it);
 					}
@@ -338,10 +351,42 @@ namespace geo {
 				return node;
 		}
 
+		bool node_sort_pred(SymNode& lhs, SymNode& rhs)
+		{
+			if (lhs.type == rhs.type)
+			{
+				if (lhs.type == SymNode::OP_VAR)
+				{
+					return *(s32*)lhs.data < *(s32*)rhs.data;
+				}
+				else if (lhs.type == SymNode::OP_VAL_REAL)
+				{
+					return *(r64*)lhs.data < *(r64*)rhs.data;
+				}
+				else
+					return false;
+			}
+			else
+				return lhs.type < rhs.type;
+		}
+
+		void simplify(SymNode &node)
+		{
+			if (!node.nodes.empty())
+			{
+				node.nodes.sort(node_sort_pred);
+
+				for (auto& n : node.nodes)
+				{
+					simplify(n);
+				}
+			}
+		}
+
 		struct Equation
 		{
-			SymNodePtr lhs;
-			SymNodePtr rhs;
+			SymNode lhs;
+			SymNode rhs;
 		};
 
 		Equation solve(Equation equ, SymNodePtr var)
