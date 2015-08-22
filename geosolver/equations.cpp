@@ -20,6 +20,11 @@ namespace geo {
 			name_id_map.clear();
 		}
 
+		GEOSOLVER_API void display_sym_node(SymNode *node)
+		{
+			cout << *node << endl;
+		}
+
 		GEOSOLVER_API s64 sym_kernel_get_id(std::string name)
 		{
 			auto it = name_id_map.find(name);

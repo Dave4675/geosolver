@@ -21,9 +21,10 @@ namespace geo {
 		GEOSOLVER_API s64 sym_kernel_get_id(std::string name);
 		GEOSOLVER_API std::string sym_kernel_get_name(s64 id);
 
+		GEOSOLVER_API void display_sym_node(SymNode *node);
 		int simplify(SymNode &node);
 
-		enum class SYM_TYPE { OP_NONE, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_VAL_RATIONAL, OP_VAL_REAL, OP_VAR };
+		enum class SYM_TYPE { OP_NONE, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_VAL_RATIONAL, OP_VAR, OP_VAL_REAL};
 		struct SymNode
 		{
 			static GEOSOLVER_API s32 total_ctor_calls;
@@ -209,7 +210,7 @@ namespace geo {
 						out << "- ";
 						break;
 					case SYM_TYPE::OP_MUL:
-						out << "* ";
+						//out << ".";
 						break;
 					case SYM_TYPE::OP_DIV:
 						out << "/ ";
@@ -384,6 +385,22 @@ namespace geo {
 			return op_div(lhs, op_var(rhs));
 		}
 
+		bool operator==(const SymNode &lhs, const SymNode& rhs)
+		{
+			if (lhs.type == rhs.type)
+			{
+				if (lhs.is_var())
+				{
+					if (lhs.id == rhs.id)
+					{
+						if (lhs.power == rhs.power)
+							return true;
+					}
+				}
+			}
+			return false;
+		}
+
 		//-----------------------
 
 		SymNode expand_mul_sub(SymNode n1, SymNode n2)
@@ -394,13 +411,13 @@ namespace geo {
 			{
 				result = n1*n2;
 			}
-			else if (n1.is_final())
+			else if (n1.is_final() || n1.is_mul())
 			{
 				if (n2.is_add())
 				{
 					auto it = n2.nodes.begin();
 					result = n1*(*it);
-					result.type = SYM_TYPE::OP_ADD;
+					it++;
 					while (it != n2.nodes.end())
 					{
 						result = result + n1*(*it);
@@ -412,7 +429,7 @@ namespace geo {
 					result = n1*n2;
 				}
 			}
-			else if (n2.is_final())
+			else if (n2.is_final() || n2.is_mul())
 			{
 				if (n1.is_add())
 				{
@@ -459,6 +476,7 @@ namespace geo {
 			auto it = node.nodes.begin();
 			SymNode result = *it;
 			it++;
+			
 			while (it != node.nodes.end())
 			{
 				result = expand_mul_sub(result, *it);
@@ -468,10 +486,35 @@ namespace geo {
 			return result;
 		}
 
+		bool is_sym_node_flat(SymNode const& node)
+		{
+			if (node.is_mul())
+			{
+				for (auto& n : node.nodes)
+				{
+					if (!n.is_final())
+					{
+						return false;
+					}
+				}
+			}
+			else if (node.is_add())
+			{
+				for (auto& n : node.nodes)
+				{
+					if (!is_sym_node_flat(n))
+					{
+						return false;
+					}
+				}
+			}
+			return true;
+		}
+
 		SymNode expand(SymNode node)
 		{
 			//cout << "expanding [ " << node << "]"<<endl;
-			SymNode result;
+			SymNode result = node;
 			if (!node.nodes.empty())
 			{
 				switch (node.type)
@@ -492,10 +535,11 @@ namespace geo {
 					result = node;
 					break;
 				}
-				return result;
 			}
-			else
-				return node;
+			while (!is_sym_node_flat(result))
+				result = expand(result);
+
+			return result;
 		}
 
 		bool node_sort_pred(SymNode lhs, SymNode rhs)
@@ -517,15 +561,37 @@ namespace geo {
 				{
 					return lhs.real_value > lhs.real_value;
 				}
-				else if (lhs.is_add())
+				else if (lhs.is_mul())
 				{
-					return !node_sort_pred(lhs.nodes.front(), rhs.nodes.front());
+					return node_sort_pred(lhs.nodes.front(), rhs.nodes.front());
 				}
 				else
 					return false;
 			}
 			else
 				return lhs.type > rhs.type;
+		}
+
+		bool is_flat_mul_node_equal(const SymNode& n1, const SymNode& n2)
+		{
+			if (n1.nodes.size() != n2.nodes.size())
+				return false;
+
+			auto it1 = n1.nodes.begin();
+			auto it2 = n2.nodes.begin();
+
+			while (it1 != n1.nodes.end())
+			{
+				if (!((*it1) == (*it2)))
+					return false;
+				it1++;
+				it2++;
+			}
+
+			if (n1.is_final() && n2.is_final())
+				return n1 == n2;
+
+			return true;
 		}
 
 		int simplify(SymNode &node)
@@ -621,12 +687,43 @@ namespace geo {
 
 							node.nodes.erase(first_it, last_it);
 							node.nodes.push_front(power_node);
+							n_op++;
 						}
 
 						first_it = last_it;
 					}
 				}
 #endif // 0
+
+#if 1
+				// Join MUL nodes with the same content: x*y + x*y = 2*x*y
+				if (node.is_add() && is_sym_node_flat(node))
+				{
+					auto first_it = node.nodes.begin();
+					auto last_it = first_it;
+
+					while (first_it != node.nodes.end())
+					{
+						r64 times = 1;
+						last_it++;
+						if (last_it != node.nodes.end() && is_flat_mul_node_equal(*first_it, *last_it))
+						{
+							while (last_it != node.nodes.end() && is_flat_mul_node_equal(*first_it, *last_it))
+							{
+								times++;
+								last_it++;
+							}
+							SymNode mul_node = op_mul(*first_it, op_val_real(times));
+
+							node.nodes.erase(first_it, last_it);
+							node.nodes.push_front(mul_node);
+						}
+
+						first_it = last_it;
+					}
+				}
+#endif // 1
+
 			}
 
 			if (n_op > 0)
